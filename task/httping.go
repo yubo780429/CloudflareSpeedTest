@@ -25,19 +25,37 @@ var (
 	RegexpColoGcore       = regexp.MustCompile(`^[a-z]{2}`) // 匹配城市地区码的正则表达式（小写，如 us、cn、uk 等）
 )
 
-// pingReceived pingTotalTime
-func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
-	hc := http.Client{
+func newProbeHTTPClient(ip *net.IPAddr) (*http.Client, func()) {
+	checkRedirect := func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse // 阻止重定向
+	}
+	if HTTP3 {
+		tr := newHTTP3Transport(ip)
+		hc := &http.Client{
+			Timeout:       time.Second * 2,
+			Transport:     tr,
+			CheckRedirect: checkRedirect,
+		}
+		return hc, func() {
+			hc.CloseIdleConnections()
+			_ = tr.Close()
+		}
+	}
+	hc := &http.Client{
 		Timeout: time.Second * 2,
 		Transport: &http.Transport{
 			DialContext: getDialContext(ip),
 			//TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // 跳过证书验证
 		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // 阻止重定向
-		},
+		CheckRedirect: checkRedirect,
 	}
-	defer hc.CloseIdleConnections()
+	return hc, hc.CloseIdleConnections
+}
+
+// pingReceived pingTotalTime
+func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
+	hc, cleanup := newProbeHTTPClient(ip)
+	defer cleanup()
 
 	// 先访问一次获得 HTTP 状态码 及 地区码
 	var colo string
@@ -105,7 +123,7 @@ func (p *Ping) httping(ip *net.IPAddr) (int, time.Duration, string) {
 			return 0, 0, ""
 		}
 		request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36")
-		if i == PingTimes-1 {
+		if i == PingTimes-1 && !HTTP3 {
 			request.Header.Set("Connection", "close")
 		}
 		startTime := time.Now()

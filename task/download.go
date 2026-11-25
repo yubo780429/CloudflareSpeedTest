@@ -65,7 +65,11 @@ func TestDownloadSpeed(ipSet utils.PingDelaySet) (speedSet utils.DownloadSpeedSe
 		TestCount = testNum
 	}
 
-	utils.Cyan.Printf("开始下载测速（下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+	if HTTP3 {
+		utils.Cyan.Printf("开始下载测速（模式：HTTP/3, 下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+	} else {
+		utils.Cyan.Printf("开始下载测速（下限：%.2f MB/s, 数量：%d, 队列：%d）\n", MinSpeed, TestCount, testNum)
+	}
 	// 控制 下载测速进度条 与 延迟测速进度条 长度一致（强迫症）
 	bar_a := len(strconv.Itoa(len(ipSet)))
 	bar_b := "     "
@@ -135,27 +139,44 @@ func printDownloadDebugInfo(ip *net.IPAddr, err error, statusCode int, url, last
 	}
 }
 
+func newDownloadClient(ip *net.IPAddr, checkRedirect func(req *http.Request, via []*http.Request) error) (*http.Client, func()) {
+	if HTTP3 {
+		tr := newHTTP3Transport(ip)
+		client := &http.Client{
+			Transport:     tr,
+			Timeout:       Timeout,
+			CheckRedirect: checkRedirect,
+		}
+		return client, func() {
+			client.CloseIdleConnections()
+			_ = tr.Close()
+		}
+	}
+	client := &http.Client{
+		Transport:     &http.Transport{DialContext: getDialContext(ip)},
+		Timeout:       Timeout,
+		CheckRedirect: checkRedirect,
+	}
+	return client, client.CloseIdleConnections
+}
+
 // return download Speed
 func downloadHandler(ip *net.IPAddr) (float64, string) {
 	var lastRedirectURL string // 用于记录最后一次重定向目标，以便在访问错误时输出
-	client := &http.Client{
-		Transport: &http.Transport{DialContext: getDialContext(ip)},
-		Timeout:   Timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			lastRedirectURL = req.URL.String() // 记录每次重定向的目标，以便在访问错误时输出
-			if len(via) > 10 {                 // 限制最多重定向 10 次
-				if utils.Debug { // 调试模式下，输出更多信息
-					utils.Red.Printf("[调试] IP: %s, 下载测速地址重定向次数过多，终止测速，下载测速地址: %s\n", ip.String(), req.URL.String())
-				}
-				return http.ErrUseLastResponse
+	client, cleanup := newDownloadClient(ip, func(req *http.Request, via []*http.Request) error {
+		lastRedirectURL = req.URL.String() // 记录每次重定向的目标，以便在访问错误时输出
+		if len(via) > 10 {                 // 限制最多重定向 10 次
+			if utils.Debug { // 调试模式下，输出更多信息
+				utils.Red.Printf("[调试] IP: %s, 下载测速地址重定向次数过多，终止测速，下载测速地址: %s\n", ip.String(), req.URL.String())
 			}
-			if req.Header.Get("Referer") == defaultURL { // 当使用默认下载测速地址时，重定向不携带 Referer
-				req.Header.Del("Referer")
-			}
-			return nil
-		},
-	}
-	defer client.CloseIdleConnections()
+			return http.ErrUseLastResponse
+		}
+		if req.Header.Get("Referer") == defaultURL { // 当使用默认下载测速地址时，重定向不携带 Referer
+			req.Header.Del("Referer")
+		}
+		return nil
+	})
+	defer cleanup()
 	req, err := http.NewRequest("GET", URL, nil)
 	if err != nil {
 		if utils.Debug { // 调试模式下，输出更多信息

@@ -94,7 +94,8 @@ chmod +x cfst
 > _在**手机**上独立运行 CFST 测速的简单教程：**[Android](https://github.com/XIU2/CloudflareSpeedTest/discussions/61)、[Android APP](https://github.com/Hsia97/CFSTAPP)、[Android APP](https://github.com/xianshenglu/cloudflare-ip-tester-app)、[IOS](https://github.com/XIU2/CloudflareSpeedTest/discussions/321)**_
 
 > [!NOTE]
-> 注意！本软件仅适用于网站，**不支持给使用 UDP 协议的 Cloudflare WARP 优选 IP**，具体见：[#392](https://github.com/XIU2/CloudflareSpeedTest/discussions/392)
+> 注意！本软件仅适用于网站 CDN IP 优选，**不支持给使用 UDP 协议的 Cloudflare WARP 优选 IP**，具体见：[#392](https://github.com/XIU2/CloudflareSpeedTest/discussions/392)
+> 但本软件已支持通过 **QUIC (UDP)** 协议对 CDN IP 进行延迟测速和下载测速（`-quicing` / `-http3` 参数），详见下方 [QUICing / HTTP/3](#-quicing--http3) 章节。
 
 ### 结果示例
 
@@ -123,9 +124,9 @@ IP 地址           已发送  已接收  丢包率  平均延迟  下载速度(
 # 因此建议大家开机后第一次正式测速前，先随便测几个 IP（无需等待延迟测速完成，只要进度条动了就可以直接关了）
 
 # 软件在 默认参数 下的整个流程大概步骤：
-# 1. 延迟测速（默认 TCPing 模式，HTTPing 模式需要手动加上参数）
+# 1. 延迟测速（默认 TCPing 模式，可通过 -httping/-quicing/-http3 切换为 HTTPing/QUICing/HTTP3 模式）
 # 2. 延迟排序（延迟 从低到高 排序并按条件过滤，不同丢包率会分开排序，因此可能会有一些延迟低但丢包的 IP 排到后面）
-# 3. 下载测速（从延迟最低的 IP 开始依次下载测速，默认测够 10 个就会停止）
+# 3. 下载测速（从延迟最低的 IP 开始依次下载测速，默认测够 10 个就会停止，可通过 -http3 切换为 HTTP/3 下载）
 # 4. 速度排序（速度从高到低排序）
 # 5. 输出结果（通过参数控制是否输出到命令行(-p 0)或输出到文件(-o "")）
 
@@ -178,6 +179,14 @@ https://github.com/XIU2/CloudflareSpeedTest
         当使用 HTTP 测速模式时，软件会从 HTTP 响应头中获取该 IP 当前地区码（支持 Cloudflare、AWS CloudFront、Fastly、Gcore、CDN77、Bunny 等 CDN）并显示出来。
         注意：HTTPing 本质上也算一种 网络扫描 行为，因此如果你在服务器上面运行，需要降低并发(-n)，否则可能会被一些严格的商家暂停服务。
         如果你遇到 HTTPing 首次测速可用 IP 数量正常，后续测速越来越少甚至直接为 0，但停一段时间后又恢复了的情况，那么也可能是被 运营商、Cloudflare CDN 认为你在网络扫描而 触发临时限制机制，因此才会过一会儿就恢复了，建议降低并发(-n)减少这种情况的发生。
+    -quicing
+        切换测速模式；延迟测速模式改为 QUIC 握手 (UDP)，仅检测 UDP 连通性与 QUIC 握手延迟；(默认 关闭)
+        QUIC 握手超时为 1.5 秒，TLS SNI 自动从 [-url] 参数中提取域名。
+        注意：部分运营商/网络可能会阻断 UDP 443 端口，此时 QUIC 握手会超时，可对比 TCPing 结果判断是否为 UDP 被 QOS。
+    -http3
+        启用 HTTP/3 (UDP) 协议；配合 [-httping] 时延迟测速走 HTTP/3，下载测速也走 HTTP/3；(默认 关闭)
+        可与 [-quicing] 组合使用：延迟测速走纯 QUIC 握手，下载测速走 HTTP/3。
+        单独使用 [-http3]（不加 -httping/-quicing）时，延迟测速仍为 TCPing，仅下载测速切换为 HTTP/3。
     -httping-code 200
         有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认 200 301 302)
     -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
@@ -399,10 +408,12 @@ cfst -ip 1.1.1.1,2606:4700::/32
 
 ****
 
-目前有两种延迟测速模式，分别为 **TCP 协议、HTTP 协议**。  
+目前有四种延迟测速模式，分别为 **TCP 协议、HTTP 协议、QUIC 握手、HTTP/3 协议**。  
 TCP 协议耗时更短、消耗资源更少，超时时间为 1 秒，该协议为默认模式。  
 HTTP 协议适用于快速测试某域名指向某 IP 时是否可以访问，超时时间为 2 秒。  
-同一个 IP，各协议去 Ping 得到的延迟一般为：**ICMP < TCP < HTTP**，越靠右对丢包等网络波动越敏感。
+QUIC 握手仅完成 UDP + TLS 1.3 握手即断开，用于测试 UDP 连通性与握手延迟，超时时间为 1.5 秒。  
+HTTP/3 协议在 QUIC 连接上发送 HTTP/3 HEAD 请求，与 HTTPing 类似但全程走 UDP。  
+同一个 IP，各协议去 Ping 得到的延迟一般为：**ICMP < TCP < HTTP ≈ QUIC < HTTP/3**，越靠右对丢包等网络波动越敏感。
 
 > 注意：HTTPing 本质上也算一种**网络扫描**行为，因此如果你在服务器上面运行，需要**降低并发**(`-n`)，否则可能会被一些严格的商家暂停服务。如果你遇到 HTTPing 首次测速可用 IP 数量正常，后续测速越来越少甚至直接为 0，但停一段时间后又恢复了的情况，那么也可能是被 运营商、Cloudflare CDN 认为你在网络扫描而**触发临时限制机制**，因此才会过一会儿就恢复了，建议**降低并发**(`-n`)减少这种情况的发生。
 
@@ -425,6 +436,60 @@ cfst -httping -url https://cf.xiu2.xyz/url
 # 同理，如果要测速 80 端口，那么也需要加上 -url 参数来指定一个 http:// 协议的地址才行（且该地址不会强制重定向至 HTTPS），如果是非 80 443 端口，那么需要确定该下载测速地址是否支持通过该端口访问。
 cfst -httping -tp 80 -url http://cdn.cloudflare.steamstatic.com/steam/apps/5952/movie_max.webm
 ```
+
+</details>
+
+****
+
+#### \# QUICing / HTTP/3
+
+<details>
+<summary><code><strong>「 点击展开 查看内容 」</strong></code></summary>
+
+****
+
+本软件支持通过 **QUIC (UDP)** 协议对 CDN IP 进行延迟测速和下载测速，新增了两个参数：`-quicing` 和 `-http3`。
+
+> **前提条件**：你的网络环境需要允许 **UDP 443** 端口出站，部分运营商/企业网络可能会阻断 UDP 443，此时 QUIC 握手会超时。可以对比 TCPing 结果来判断是否为 UDP 被 QOS。
+
+> **注意**：在 Linux 上大量并发 QUIC 连接时，`quic-go` 可能会提示接收缓冲区不足的警告，软件已自动抑制该警告，但建议适当调大系统参数 `net.core.rmem_max`。
+
+``` bash
+# 1. 纯 QUIC 握手测延迟（最轻量的 UDP 探测，不发 HTTP 请求，不获取地区码）
+# 适用于快速检测哪些 IP 的 UDP 连通性好、握手延迟低
+cfst -quicing -dd
+
+# 2. QUIC 握手测延迟 + HTTP/3 下载测速（延迟走 QUIC，下载走 HTTP/3）
+cfst -quicing -http3
+
+# 3. HTTP/3 HEAD 测延迟 + HTTP/3 下载测速（完整 HTTP/3 链路，可获取地区码）
+# 类似 -httping 但全程走 UDP/QUIC，支持 -cfcolo 匹配指定地区
+cfst -httping -http3
+
+# 4. 传统 TCPing 延迟 + HTTP/3 下载测速（混合模式）
+# 延迟测速仍走 TCP，仅下载测速切换为 HTTP/3
+cfst -http3
+
+# 5. 组合其他参数使用（和 TCPing/HTTPing 模式完全一样的参数都可以搭配）
+# QUIC 握手测延迟 + 指定延迟上限 + HTTP/3 下载测速 + 指定下载速度下限
+cfst -quicing -http3 -tl 200 -sl 5
+
+# HTTP/3 HTTPing + 匹配指定地区
+cfst -httping -http3 -cfcolo HKG,LAX,NRT
+```
+
+> **参数组合说明**：
+> | 参数组合 | 延迟测速模式 | 下载测速模式 | 能否获取地区码 |
+> |---|---|---|---|
+> | （默认） | TCPing | HTTP/1.1 | 仅下载测速时 |
+> | `-httping` | HTTPing | HTTP/1.1 | ✅ |
+> | `-quicing` | QUIC 握手 | HTTP/1.1 | 仅下载测速时 |
+> | `-quicing -dd` | QUIC 握手 | （禁用） | ❌ |
+> | `-http3` | TCPing | HTTP/3 | 仅下载测速时 |
+> | `-quicing -http3` | QUIC 握手 | HTTP/3 | 仅下载测速时 |
+> | `-httping -http3` | HTTP/3 HEAD | HTTP/3 | ✅ |
+
+> 如果同时指定了 `-httping` 和 `-quicing`，将优先使用 `-httping` 模式。
 
 </details>
 

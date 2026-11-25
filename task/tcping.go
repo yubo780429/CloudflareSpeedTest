@@ -63,8 +63,12 @@ func (p *Ping) Run() utils.PingDelaySet {
 	if len(p.ips) == 0 {
 		return p.csv
 	}
-	if Httping {
+	if Httping && HTTP3 {
+		utils.Cyan.Printf("开始延迟测速（模式：HTTP/3, 端口：%d, 范围：%v ~ %v ms, 丢包：%.2f)\n", TCPPort, utils.InputMinDelay.Milliseconds(), utils.InputMaxDelay.Milliseconds(), utils.InputMaxLossRate)
+	} else if Httping {
 		utils.Cyan.Printf("开始延迟测速（模式：HTTP, 端口：%d, 范围：%v ~ %v ms, 丢包：%.2f)\n", TCPPort, utils.InputMinDelay.Milliseconds(), utils.InputMaxDelay.Milliseconds(), utils.InputMaxLossRate)
+	} else if Quicing {
+		utils.Cyan.Printf("开始延迟测速（模式：QUIC, 端口：%d, 范围：%v ~ %v ms, 丢包：%.2f)\n", TCPPort, utils.InputMinDelay.Milliseconds(), utils.InputMaxDelay.Milliseconds(), utils.InputMaxLossRate)
 	} else {
 		utils.Cyan.Printf("开始延迟测速（模式：TCP, 端口：%d, 范围：%v ~ %v ms, 丢包：%.2f)\n", TCPPort, utils.InputMinDelay.Milliseconds(), utils.InputMaxDelay.Milliseconds(), utils.InputMaxLossRate)
 	}
@@ -107,6 +111,11 @@ func (p *Ping) tcping(ip *net.IPAddr) (bool, time.Duration) {
 func (p *Ping) checkConnection(ip *net.IPAddr) (recv int, totalDelay time.Duration, colo string) {
 	if Httping {
 		recv, totalDelay, colo = p.httping(ip)
+		return
+	}
+	if Quicing {
+		colo = "" // QUICing 不获取 colo
+		recv, totalDelay = p.quicing(ip)
 		return
 	}
 	colo = "" // TCPing 不获取 colo

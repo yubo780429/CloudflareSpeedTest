@@ -40,6 +40,10 @@ https://github.com/XIU2/CloudflareSpeedTest
 
     -httping
         切换测速模式；延迟测速模式改为 HTTP 协议，所用测试地址为 [-url] 参数；(默认 TCPing)
+    -quicing
+        切换测速模式；延迟测速模式改为 QUIC 握手 (UDP)，仅检测 UDP 连通性与握手延迟；(默认 关闭)
+    -http3
+        启用 HTTP/3 (UDP)；配合 [-httping] 时延迟测速走 HTTP/3，下载测速亦走 HTTP/3 协议；(默认 关闭)
     -httping-code 200
         有效状态代码；HTTPing 延迟测速时网页返回的有效 HTTP 状态码，仅限一个；(默认 200 301 302)
     -cfcolo HKG,KHH,NRT,LAX,SEA,SJC,FRA,MAD
@@ -86,6 +90,8 @@ https://github.com/XIU2/CloudflareSpeedTest
 	flag.StringVar(&task.URL, "url", "https://cf.xiu2.xyz/url", "指定测速地址")
 
 	flag.BoolVar(&task.Httping, "httping", false, "切换测速模式")
+	flag.BoolVar(&task.Quicing, "quicing", false, "切换测速模式为 QUIC 握手")
+	flag.BoolVar(&task.HTTP3, "http3", false, "启用 HTTP/3 协议")
 	flag.IntVar(&task.HttpingStatusCode, "httping-code", 0, "有效状态代码")
 	flag.StringVar(&task.HttpingCFColo, "cfcolo", "", "匹配指定地区")
 
@@ -108,6 +114,12 @@ https://github.com/XIU2/CloudflareSpeedTest
 	flag.Usage = func() { fmt.Print(help) }
 	flag.Parse()
 
+	if task.Httping && task.Quicing {
+		utils.Yellow.Println("[提示] 同时指定了 [-httping] 和 [-quicing]，将优先使用 [-httping] 模式...")
+	}
+	if (task.Quicing || task.HTTP3) && os.Getenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING") == "" {
+		_ = os.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
+	}
 	if task.MinSpeed > 0 && time.Duration(maxDelay)*time.Millisecond == utils.InputMaxDelay {
 		utils.Yellow.Println("[提示] 在使用 [-sl] 参数时，建议搭配 [-tl] 参数，以避免因凑不够 [-dn] 数量而一直测速...")
 	}
