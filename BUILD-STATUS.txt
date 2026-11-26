@@ -1,0 +1,27 @@
+Build / validation status — CFST DualBench 2.1.0
+================================================
+
+Source updates:
+- Default URL uses the Cloudflare Speedtest HTTP/3 host h3.speed.cloudflare.com with a 10 GB download object.
+- Same-origin Referer is added for Cloudflare Speedtest hosts.
+- H1/H2/H3 requests are pinned to the candidate IP while retaining URL hostname as TLS SNI and HTTP Host.
+- H1/H2 use explicit ALPN; H3 uses quic-go's independent QUIC HTTP/3 transport.
+- Actual HTTP protocol version is checked; any downgrade is rejected and never enters protocol ranking.
+- Redirects are not followed. Status, Location, actual protocol, ALPN, Colo, client IP, city, country, ASN, CF-Ray, Content-Length, TTFB, bytes, elapsed time, request count, and errors are kept in diagnostics.
+- Short finite download objects are fetched repeatedly during the configured body window.
+- Protocol ranking CSVs exclude failed, non-200, protocol-mismatched, or too-short samples.
+- CSV sort order uses only valid successful speeds.
+
+Validation in this container:
+- gofmt: passed.
+- Unit tests: passed (14 test functions; includes local TLS HTTP/1.1 and HTTP/2 success tests, HTTP/1.1-to-HTTP/2 downgrade rejection, finite-object repeat-download timing, and CSV column-alignment checks).
+- go vet: passed.
+- Windows amd64 cross-compilation: passed against a temporary local API-compatibility stub for quic-go.
+- IMPORTANT: the stub was used only to compile-check code shape and run H1/H2 tests. It does not implement QUIC and its executable is NOT included in this release.
+- Real build against github.com/quic-go/quic-go v0.66.0: not completed. The installed toolchain is Go 1.23.2; the selected quic-go version requires Go 1.26 or newer. Toolchain/module downloads are blocked by DNS/network policy.
+- Live Cloudflare HTTP/1.1, HTTP/2, QUIC/HTTP/3 benchmark was not run in this container.
+
+Release build requirements:
+- Go 1.26+
+- Working access to Go Module Proxy for github.com/quic-go/quic-go v0.66.0 and its transitive dependencies
+- Run build-windows.ps1 on Windows or build-linux.sh on Linux.
